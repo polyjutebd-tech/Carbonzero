@@ -1,0 +1,20 @@
+{
+  "name": "carbonzero-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/api", "apps/web", "packages/shared"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm --workspace @carbonzero/api run start:dev",
+    "dev:web": "npm --workspace @carbonzero/web run dev",
+    "build": "npm --workspaces run build",
+    "lint": "npm --workspaces run lint",
+    "test": "npm --workspaces run test",
+    "db:generate": "npm --workspace @carbonzero/api run prisma:generate",
+    "db:migrate": "npm --workspace @carbonzero/api run prisma:migrate",
+    "db:seed": "npm --workspace @carbonzero/api run prisma:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

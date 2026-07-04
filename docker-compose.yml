@@ -1,0 +1,75 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: carbonzero-postgis
+    environment:
+      POSTGRES_DB: carbonzero
+      POSTGRES_USER: carbonzero
+      POSTGRES_PASSWORD: carbonzero
+    ports:
+      - "5432:5432"
+    volumes:
+      - carbonzero_postgres:/var/lib/postgresql/data
+      - ./apps/api/prisma/sql/init-postgis.sql:/docker-entrypoint-initdb.d/001-init-postgis.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carbonzero -d carbonzero"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: carbonzero-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - carbonzero_redis:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: carbonzero-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: carbonzero
+      MINIO_ROOT_PASSWORD: carbonzero123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - carbonzero_minio:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: carbonzero-api
+    env_file: .env
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./packages:/app/packages
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: carbonzero-web
+    env_file: .env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages:/app/packages
+
+volumes:
+  carbonzero_postgres:
+  carbonzero_redis:
+  carbonzero_minio:
