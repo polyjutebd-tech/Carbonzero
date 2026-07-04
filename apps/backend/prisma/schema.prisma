@@ -1,0 +1,1055 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum UserRole {
+  SUPER_ADMIN
+  ORG_ADMIN
+  PROJECT_MANAGER
+  SCIENTIST
+  FIELD_TECHNICIAN
+  VIEWER
+}
+
+enum OrganizationType {
+  GOVERNMENT
+  NGO
+  PRIVATE_DEVELOPER
+  CONSULTANT
+  VERIFIER
+  VALIDATOR
+  RESEARCHER
+  ENTERPRISE
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  MONITORING
+  COMPLETED
+  ARCHIVED
+}
+
+enum MonitoringEventStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum BlueCarboEcosystem {
+  MANGROVE
+  SALT_MARSH
+  SEAGRASS
+}
+
+enum CarbonPool {
+  ABOVE_GROUND_BIOMASS
+  BELOW_GROUND_BIOMASS
+  DEAD_WOOD
+  LITTER
+  SOIL_ORGANIC_CARBON
+}
+
+enum SoilSampleStatus {
+  COLLECTED
+  SUBMITTED
+  IN_ANALYSIS
+  COMPLETED
+  FAILED
+}
+
+enum LabResultStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum QAQCStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  FLAGGED
+}
+
+enum ReportFormat {
+  PDF
+  EXCEL
+  JSON
+  INTERACTIVE_HTML
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  EXPORT
+  CALCULATE
+  VERIFY
+  APPROVE
+}
+
+// ============================================================================
+// AUTHENTICATION & AUTHORIZATION
+// ============================================================================
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String
+  firstName         String
+  lastName          String
+  avatar            String?
+  phoneNumber       String?
+  emailVerified     Boolean  @default(false)
+  status            String   @default("active") // active, inactive, suspended
+  
+  // Relationships
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  userRoles         UserOrganizationRole[]
+  projectMembers    ProjectMember[]
+  monitoringEvents  MonitoringEvent[]
+  soilSamples       SoilSample[]
+  labResults        LabResult[]
+  qaqcReviews       QAQCReview[]
+  auditLogs         AuditLog[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([organizationId])
+  @@index([email])
+  @@index([deletedAt])
+}
+
+model UserOrganizationRole {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  role              UserRole @default(VIEWER)
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model RefreshToken {
+  id                String   @id @default(cuid())
+  token             String   @unique
+  userId            String
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+  
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// ORGANIZATION MANAGEMENT
+// ============================================================================
+
+model Organization {
+  id                String   @id @default(cuid())
+  name              String
+  slug              String   @unique
+  description       String?
+  logo              String?
+  website           String?
+  email             String?
+  phoneNumber       String?
+  organizationType  OrganizationType
+  
+  // Address
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  country           String?
+  postalCode        String?
+  
+  // Billing & License
+  planTier          String   @default("free") // free, starter, pro, enterprise
+  subscriptionId    String?
+  maxProjects       Int      @default(5)
+  maxUsers          Int      @default(10)
+  
+  // Status
+  status            String   @default("active") // active, trial_expired, suspended
+  trialEndsAt       DateTime?
+  
+  // Relationships
+  users             User[]
+  userRoles         UserOrganizationRole[]
+  projects          Project[]
+  methodologyProfiles MethodologyProfile[]
+  parameterLibraries ParameterLibrary[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([slug])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// PROJECT MANAGEMENT
+// ============================================================================
+
+model Project {
+  id                String   @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  
+  // Blue Carbon Config
+  ecosystem         BlueCarboEcosystem
+  startDate         DateTime
+  endDate           DateTime?
+  
+  // Location (descriptive)
+  country           String?
+  province          String?
+  district          String?
+  
+  // Status
+  status            ProjectStatus @default(PLANNING)
+  
+  // Relationships
+  members           ProjectMember[]
+  boundaries        ProjectBoundary[]
+  monitoringEvents  MonitoringEvent[]
+  surveyPlots       SurveyPlot[]
+  gisLayers         GISLayer[]
+  evidence          Evidence[]
+  calculations      CarbonCalculation[]
+  reports           Report[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([organizationId])
+  @@index([status])
+  @@index([ecosystem])
+  @@index([deletedAt])
+}
+
+model ProjectMember {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  role              String   @default("member") // member, lead, viewer
+  permissions       String[] @default([]) // custom permissions
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+// ============================================================================
+// GIS & PROJECT BOUNDARIES
+// ============================================================================
+
+model ProjectBoundary {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  
+  // GIS Data
+  geometry          String   @db.Text // GeoJSON as string (PostGIS geometry will be stored separately via trigger/function)
+  areaHectares      Float?   // Calculated area
+  crs               String   @default("EPSG:4326") // Coordinate Reference System
+  
+  // Status
+  isActive          Boolean  @default(true)
+  validationStatus  String   @default("pending") // pending, valid, invalid
+  validationMessage String?
+  
+  // Versioning
+  version           Int      @default(1)
+  previousVersionId String?
+  
+  // Relationships
+  surveyPlots       SurveyPlot[]
+  gisLayers         GISLayer[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  createdBy         String?
+  updatedBy         String?
+  
+  @@index([projectId])
+  @@index([isActive])
+  @@index([validationStatus])
+  @@index([deletedAt])
+}
+
+model GISLayer {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  boundaryId        String?
+  boundary          ProjectBoundary? @relation(fields: [boundaryId], references: [id], onDelete: SetNull)
+  
+  name              String
+  description       String?
+  layerType         String   // satellite, drone, vector, raster, custom
+  
+  // Data Storage
+  dataUrl           String?  // S3 or cloud storage URL
+  filePath          String?
+  fileFormat        String?  // GeoTIFF, GeoJSON, Shapefile, etc.
+  
+  // Metadata
+  crs               String   @default("EPSG:4326")
+  bounds            String?  // GeoJSON bbox as string
+  captureDate       DateTime?
+  resolution        Float?   // for raster data (meters)
+  
+  // Status
+  processingStatus  String   @default("pending") // pending, processing, ready, failed
+  
+  // Relationships
+  evidence          Evidence[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([projectId])
+  @@index([boundaryId])
+  @@index([layerType])
+  @@index([processingStatus])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// MONITORING EVENTS & SURVEY STRUCTURE
+// ============================================================================
+
+model MonitoringEvent {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  
+  // Schedule
+  plannedDate       DateTime
+  actualDate        DateTime?
+  status            MonitoringEventStatus @default(PLANNED)
+  
+  // Responsible
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Relationships
+  surveyPlots       SurveyPlot[]
+  soilSamples       SoilSample[]
+  evidence          Evidence[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([projectId])
+  @@index([status])
+  @@index([plannedDate])
+  @@index([deletedAt])
+}
+
+model SurveyPlot {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  boundaryId        String?
+  boundary          ProjectBoundary? @relation(fields: [boundaryId], references: [id], onDelete: SetNull)
+  
+  monitoringEventId String?
+  monitoringEvent   MonitoringEvent? @relation(fields: [monitoringEventId], references: [id], onDelete: SetNull)
+  
+  plotCode          String
+  description       String?
+  
+  // GIS
+  centerPoint       String   @db.Text // GeoJSON point
+  plotShapeArea     Float?   // hectares
+  plotRadius        Float?   // meters
+  
+  // Ecological
+  elevation         Float?   // meters
+  slope             Float?   // degrees
+  aspect            String?  // N, NE, E, SE, S, SW, W, NW
+  
+  // Relationships
+  trees             TreeInventory[]
+  soilSamples       SoilSample[]
+  waterQuality      WaterQuality[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@unique([projectId, plotCode])
+  @@index([projectId])
+  @@index([boundaryId])
+  @@index([monitoringEventId])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// TREE INVENTORY & SPECIES
+// ============================================================================
+
+model TreeInventory {
+  id                String   @id @default(cuid())
+  surveyPlotId      String
+  surveyPlot        SurveyPlot @relation(fields: [surveyPlotId], references: [id], onDelete: Cascade)
+  
+  treeCode          String
+  speciesId         String?
+  species           Species? @relation(fields: [speciesId], references: [id], onDelete: SetNull)
+  
+  // Measurements
+  dbh               Float    // Diameter at Breast Height (cm)
+  height            Float?   // meters
+  crownDiameter     Float?   // meters
+  
+  // Carbon Pools
+  abovegroundBiomass Float?  // kg
+  belowgroundBiomass Float?  // kg
+  
+  // Status
+  isAlive           Boolean  @default(true)
+  condition         String?  // healthy, stressed, dead, etc.
+  
+  // Relationships
+  biomassSamples    BiomassSample[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@unique([surveyPlotId, treeCode])
+  @@index([surveyPlotId])
+  @@index([speciesId])
+  @@index([deletedAt])
+}
+
+model Species {
+  id                String   @id @default(cuid())
+  commonName        String
+  scientificName    String   @unique
+  ecosystem         BlueCarboEcosystem
+  
+  // Allometric defaults (configurable per methodology)
+  defaultWoodDensity Float?   // g/cm³
+  description       String?
+  
+  // Relationships
+  trees             TreeInventory[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([ecosystem])
+  @@index([scientificName])
+}
+
+model BiomassSample {
+  id                String   @id @default(cuid())
+  treeId            String
+  tree              TreeInventory @relation(fields: [treeId], references: [id], onDelete: Cascade)
+  
+  sampleDate        DateTime
+  sampleType        String   // wood, leaves, roots, bark
+  dryWeight         Float?   // grams
+  moistureContent   Float?   // %
+  
+  // Lab reference
+  labResultId       String?
+  labResult         LabResult? @relation(fields: [labResultId], references: [id], onDelete: SetNull)
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([treeId])
+  @@index([labResultId])
+}
+
+// ============================================================================
+// SOIL SAMPLING & LAB RESULTS
+// ============================================================================
+
+model SoilSample {
+  id                String   @id @default(cuid())
+  surveyPlotId      String
+  surveyPlot        SurveyPlot @relation(fields: [surveyPlotId], references: [id], onDelete: Cascade)
+  
+  monitoringEventId String?
+  monitoringEvent   MonitoringEvent? @relation(fields: [monitoringEventId], references: [id], onDelete: SetNull)
+  
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  sampleCode        String
+  depth             Float    // cm
+  depthRange        String?  // e.g., "0-10", "10-20"
+  
+  // Physical
+  sampleWeight      Float?   // grams
+  moistureContent   Float?   // %
+  bulkDensity       Float?   // g/cm³
+  
+  // Status
+  status            SoilSampleStatus @default(COLLECTED)
+  
+  // Relationships
+  labResults        LabResult[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@unique([surveyPlotId, sampleCode])
+  @@index([surveyPlotId])
+  @@index([monitoringEventId])
+  @@index([userId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model LabResult {
+  id                String   @id @default(cuid())
+  soilSampleId      String
+  soilSample        SoilSample @relation(fields: [soilSampleId], references: [id], onDelete: Cascade)
+  
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  // Analysis Parameters (configurable per methodology)
+  organicCarbon     Float?   // % or mg/kg
+  organicMatter     Float?   // %
+  nitrogen          Float?   // %
+  phosphorus        Float?   // mg/kg
+  potassium         Float?   // mg/kg
+  ph                Float?
+  texture           String?  // sand, silt, clay percentages as JSON
+  
+  // Quality
+  status            LabResultStatus @default(PENDING)
+  reviewComments    String?
+  
+  // References
+  biomassSamples    BiomassSample[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([soilSampleId])
+  @@index([userId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// WATER QUALITY & HYDROLOGY
+// ============================================================================
+
+model WaterQuality {
+  id                String   @id @default(cuid())
+  surveyPlotId      String
+  surveyPlot        SurveyPlot @relation(fields: [surveyPlotId], references: [id], onDelete: Cascade)
+  
+  measurementDate   DateTime
+  
+  // Parameters (configurable)
+  salinity          Float?   // ppt
+  ph                Float?
+  temperature       Float?   // °C
+  dissolvedOxygen   Float?   // mg/L
+  turbidity         Float?   // NTU
+  conductivity      Float?   // µS/cm
+  
+  // Notes
+  notes             String?
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([surveyPlotId])
+  @@index([measurementDate])
+}
+
+model HydrologyData {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  measurementDate   DateTime
+  
+  // Parameters (configurable)
+  tidalHeight       Float?   // meters
+  waterLevel        Float?   // meters
+  flowRate          Float?   // m³/s
+  rainfall          Float?   // mm
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([projectId])
+  @@index([measurementDate])
+}
+
+model ClimateRecord {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  recordDate        DateTime
+  
+  // Parameters (configurable)
+  temperature       Float?   // °C
+  humidity          Float?   // %
+  rainfall          Float?   // mm
+  windSpeed         Float?   // m/s
+  
+  // Source
+  source            String?  // weather_station, satellite, manual
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([projectId])
+  @@index([recordDate])
+}
+
+// ============================================================================
+// EVIDENCE MANAGEMENT
+// ============================================================================
+
+model Evidence {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  monitoringEventId String?
+  monitoringEvent   MonitoringEvent? @relation(fields: [monitoringEventId], references: [id], onDelete: SetNull)
+  
+  gisLayerId        String?
+  gisLayer          GISLayer? @relation(fields: [gisLayerId], references: [id], onDelete: SetNull)
+  
+  name              String
+  description       String?
+  evidenceType      String   // photo, document, dataset, measurement
+  
+  // Storage
+  fileUrl           String
+  filePath          String?
+  fileSize          Int?     // bytes
+  fileFormat        String?  // jpg, pdf, csv, geotiff, etc.
+  
+  // Metadata
+  captureDate       DateTime?
+  location          String?  // GeoJSON point
+  
+  // Versioning
+  version           Int      @default(1)
+  previousVersionId String?
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([projectId])
+  @@index([monitoringEventId])
+  @@index([gisLayerId])
+  @@index([evidenceType])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// QA/QC FRAMEWORK
+// ============================================================================
+
+model QAQCReview {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  reviewerId        String
+  reviewer          User     @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+  
+  reviewType        String   // data_quality, methodology, calculation, report
+  targetId          String   // references the ID being reviewed (soilSample, tree, calculation, etc.)
+  
+  status            QAQCStatus @default(PENDING)
+  findings          String?
+  recommendations   String?
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([projectId])
+  @@index([reviewerId])
+  @@index([reviewType])
+  @@index([status])
+}
+
+// ============================================================================
+// CARBON CALCULATION ENGINE
+// ============================================================================
+
+model MethodologyProfile {
+  id                String   @id @default(cuid())
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  name              String
+  version           String
+  ecosystem         BlueCarboEcosystem
+  
+  description       String?
+  reference         String?  // citation or URL
+  
+  // Configuration
+  parameters        ParameterSet[]
+  formulaRegistry   FormulaRegistry[]
+  
+  // Status
+  isActive          Boolean  @default(true)
+  isSystemDefault   Boolean  @default(false)
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([name, version, organizationId])
+  @@index([organizationId])
+  @@index([ecosystem])
+  @@index([isActive])
+}
+
+model ParameterSet {
+  id                String   @id @default(cuid())
+  methodologyId     String
+  methodology       MethodologyProfile @relation(fields: [methodologyId], references: [id], onDelete: Cascade)
+  
+  parameterName     String
+  value             Float
+  unit              String
+  description       String?
+  
+  // Optionality
+  isRequired        Boolean  @default(true)
+  defaultValue      Float?
+  
+  // Validation
+  minValue          Float?
+  maxValue          Float?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([methodologyId, parameterName])
+  @@index([methodologyId])
+}
+
+model ParameterLibrary {
+  id                String   @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  parameterName     String
+  category          String   // allometric, emission_factor, conversion, decay
+  unit              String
+  value             Float
+  source            String?
+  description       String?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([organizationId, parameterName])
+  @@index([organizationId])
+  @@index([category])
+}
+
+model FormulaRegistry {
+  id                String   @id @default(cuid())
+  methodologyId     String
+  methodology       MethodologyProfile @relation(fields: [methodologyId], references: [id], onDelete: Cascade)
+  
+  formulaName       String
+  carbonPool        CarbonPool
+  
+  // Formula as JSON structure (not hardcoded)
+  formulaExpression String   @db.Text // e.g., "{'expression': 'dbh^2.4328 * 0.0898'}" or more complex trees
+  
+  description       String?
+  references        String[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([methodologyId, formulaName, carbonPool])
+  @@index([methodologyId])
+  @@index([carbonPool])
+}
+
+model CarbonCalculation {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  methodologyId     String // which methodology was used
+  monitoringYear    Int
+  
+  // Calculation Input State
+  inputValidation   String?  @db.Text // JSON: validation results
+  normalizedData    String?  @db.Text // JSON: normalized inputs
+  parametersUsed    String?  @db.Text // JSON: resolved parameters
+  
+  // Results by Carbon Pool
+  agbCarbon         Float?   // Above Ground Biomass - tonnes CO2e
+  bgbCarbon         Float?   // Below Ground Biomass - tonnes CO2e
+  deadWoodCarbon    Float?   // Dead Wood - tonnes CO2e
+  litterCarbon      Float?   // Litter - tonnes CO2e
+  socCarbon         Float?   // Soil Organic Carbon - tonnes CO2e
+  
+  // Totals
+  totalCarbonStock  Float?   // tonnes CO2e
+  totalCarbonChange Float?   // tonnes CO2e/year (compared to baseline)
+  
+  // Quality Control
+  qaqcStatus        QAQCStatus @default(PENDING)
+  confidenceLevel   String?  // high, medium, low
+  uncertaintyRange  String?  // e.g., "±5%"
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([projectId, monitoringYear, methodologyId])
+  @@index([projectId])
+  @@index([monitoringYear])
+  @@index([qaqcStatus])
+}
+
+// ============================================================================
+// REPORTING & EXPORTS
+// ============================================================================
+
+model Report {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  
+  // Report Scope
+  reportYear        Int
+  reportType        String   // annual, baseline, monitoring, verification, audit
+  
+  // Content References
+  calculationIds    String[] // CarbonCalculation IDs included
+  evidenceIds       String[] // Evidence IDs included
+  
+  // Generated Content
+  content           String?  @db.Text // HTML or rendered report
+  format            ReportFormat
+  
+  // Status
+  generatedAt       DateTime?
+  exportedAt        DateTime?
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([projectId])
+  @@index([reportYear])
+  @@index([reportType])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// AUDIT LOGS
+// ============================================================================
+
+model AuditLog {
+  id                String   @id @default(cuid())
+  userId            String?
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action            AuditAction
+  entityType        String   // User, Project, TreeInventory, SoilSample, etc.
+  entityId          String
+  
+  // What changed
+  changesBefore     String?  @db.Text // JSON
+  changesAfter      String?  @db.Text // JSON
+  
+  // Context
+  ipAddress         String?
+  userAgent         String?
+  reason            String?
+  
+  // Audit
+  timestamp         DateTime @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([timestamp])
+}
+
+// ============================================================================
+// EXTENSIONS (RESERVED FOR FUTURE AI)
+// ============================================================================
+
+model AIModel {
+  id                String   @id @default(cuid())
+  name              String
+  modelType         String   // biomass_estimation, land_cover_classification, risk_detection, prediction
+  version           String
+  
+  description       String?
+  status            String   @default("draft") // draft, training, ready, deprecated
+  accuracy          Float?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model PredictionResult {
+  id                String   @id @default(cuid())
+  projectId         String
+  aiModelId         String
+  
+  predictionType    String   // biomass, carbon_change, risk, land_cover_change
+  targetYear        Int
+  
+  result            String?  @db.Text // JSON with predictions
+  confidence        Float?
+  
+  createdAt         DateTime @default(now())
+}
+
+// ============================================================================
+// PROJECTS RELATIONSHIPS (FORWARD REFERENCES)
+// ============================================================================
+
+model Project {
+  id                String   @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  name              String
+  description       String?
+  
+  // Blue Carbon Config
+  ecosystem         BlueCarboEcosystem
+  startDate         DateTime
+  endDate           DateTime?
+  
+  // Location (descriptive)
+  country           String?
+  province          String?
+  district          String?
+  
+  // Status
+  status            ProjectStatus @default(PLANNING)
+  
+  // Relationships
+  members           ProjectMember[]
+  boundaries        ProjectBoundary[]
+  monitoringEvents  MonitoringEvent[]
+  surveyPlots       SurveyPlot[]
+  gisLayers         GISLayer[]
+  evidence          Evidence[]
+  calculations      CarbonCalculation[]
+  reports           Report[]
+  hydrologyData     HydrologyData[]
+  climateRecords    ClimateRecord[]
+  qaqcReviews       QAQCReview[]
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  @@index([organizationId])
+  @@index([status])
+  @@index([ecosystem])
+  @@index([deletedAt])
+}
+
+// ============================================================================
+// NOTE: This schema intentionally duplicates Project model due to Prisma
+// limitations. In production, ensure schema consistency.
+// Next step: Run `prisma migrate dev --name init` after PostgreSQL + PostGIS setup
+// ============================================================================
